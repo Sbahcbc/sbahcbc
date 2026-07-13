@@ -786,6 +786,14 @@ const USERS_KEY='sbahc_users';
 // https://console.firebase.google.com, enable "Realtime Database" (test mode is
 // fine to start), then paste your project's config values below. Leave apiKey as
 // 'YOUR_API_KEY' to keep using local-only per-device storage (no code breaks either way).
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyBdKnapTyeCVeh1pFkIdnAUvu_RgOgaQbk",
   authDomain: "sbahcbc-5368f.firebaseapp.com",
@@ -794,8 +802,12 @@ const firebaseConfig = {
   storageBucket: "sbahcbc-5368f.firebasestorage.app",
   messagingSenderId: "208811281892",
   appId: "1:208811281892:web:20e6cac34ccdad5fb04bf1",
-  measurementId: "G-WJ3FEHLKX1F"
+  measurementId: "G-W3FEHLKX1F"
 };
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
 let firebaseDB = null;
 const FIREBASE_CONFIGURED = !!(firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY");
 if(FIREBASE_CONFIGURED && typeof firebase !== 'undefined'){
