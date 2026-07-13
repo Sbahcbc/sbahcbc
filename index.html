@@ -803,7 +803,18 @@ if(FIREBASE_CONFIGURED && typeof firebase !== 'undefined'){
   try{ firebase.initializeApp(firebaseConfig); firebaseDB = firebase.database(); }
   catch(e){ console.error('Firebase init failed', e); }
 }
+console.log("Firebase initialized:", firebaseDB);
 
+firebaseDB.ref("sbahc/test").set({
+    message: "Firebase Write Test",
+    time: Date.now()
+})
+.then(() => {
+    console.log("✅ Firebase WRITE successful");
+})
+.catch((err) => {
+    console.error("❌ Firebase WRITE failed", err);
+});
 // Unified cloud storage shim: identical behavior whether running inside Claude
 // (window.storage) or hosted externally with Firebase configured above. All
 // app code below calls cloudStorage.get/set instead of window.storage directly,
