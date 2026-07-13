@@ -1297,8 +1297,12 @@ async function registerPlayerToCloud({ name, skill, gender, photoData, submitted
         registrationKey:key, registeredSource:'public-registration',
         registeredAt:submittedAt, createdAt:submittedAt, updatedAt:submittedAt
       };
-      await firebaseDB.ref('sbahc/roster/'+newId).set(playerOut);
-    }
+     console.log("newId:", newId);
+console.log("playerOut:", playerOut);
+
+await firebaseDB.ref("sbahc/roster/" + newId).set(playerOut);
+
+console.log("Player saved!");
 
     // Reflect immediately in our local in-memory roster for instant feedback
     const idx=state.roster.findIndex(p=>p.id===playerOut.id);
