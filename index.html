@@ -378,11 +378,6 @@
   .perm-chip{display:inline-flex;align-items:center;gap:4px;font-size:0.72rem;background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:6px;margin:2px;}
   .nav-hidden{display:none !important;}
 </style>
-<!-- Optional: enables real cross-device sync when this app is hosted outside
-     Claude (e.g. GitHub Pages). Harmless if unconfigured — see firebaseConfig
-     below in the main script. -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 </head>
 <body>
 
@@ -778,83 +773,16 @@ function defaultState(){
 let state = defaultState();
 const STORAGE_KEY='sbahc_state';
 const USERS_KEY='sbahc_users';
+const STORAGE_AVAILABLE = (typeof window!=='undefined' && window.storage);
 
-// ===== OPTIONAL: FIREBASE CONFIG (for real cross-device sync outside Claude) =====
-// If you're running this app inside Claude's chat, ignore this — it already syncs
-// via window.storage. If you're hosting it elsewhere (e.g. GitHub Pages) and want
-// multiple devices to share one live queue, create a free Firebase project at
-// https://console.firebase.google.com, enable "Realtime Database" (test mode is
-// fine to start), then paste your project's config values below. Leave apiKey as
-// 'YOUR_API_KEY' to keep using local-only per-device storage (no code breaks either way).
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyCk02gmOie-l3rZxXBqbeHj_X7f_wkZgn8",
-  authDomain: "sbahcbc-queuing-b4307.firebaseapp.com",
-  databaseURL: "https://sbahcbc-queuing-b4307-default-rtdb.firebaseio.com",
-  projectId: "sbahcbc-queuing-b4307",
-  storageBucket: "sbahcbc-queuing-b4307.firebasestorage.app",
-  messagingSenderId: "365233039098",
-  appId: "1:365233039098:web:c9f5d1e485d526c277cb43",
-  measurementId: "G-L071294RY6"
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
-let firebaseDB = null;
-const FIREBASE_CONFIGURED = !!(firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY");
-if(FIREBASE_CONFIGURED && typeof firebase !== 'undefined'){
-  try{ firebase.initializeApp(firebaseConfig); firebaseDB = firebase.database(); }
-  catch(e){ console.error('Firebase init failed', e); }
-}
-
-// Unified cloud storage shim: identical behavior whether running inside Claude
-// (window.storage) or hosted externally with Firebase configured above. All
-// app code below calls cloudStorage.get/set instead of window.storage directly,
-// so the rest of the app never needs to know which backend is in use.
-const cloudStorage = {
-  async get(key){
-    if(typeof window!=='undefined' && window.storage) return window.storage.get(key, true);
-    if(firebaseDB){
-      const snap = await firebaseDB.ref('sbahc/'+key).once('value');
-      const val = snap.val();
-      return val ? { key, value: val, shared:true } : null;
-    }
-    return null;
-  },
-  async set(key, value){
-    if(typeof window!=='undefined' && window.storage) return window.storage.set(key, value, true);
-    if(firebaseDB){ await firebaseDB.ref('sbahc/'+key).set(value); return { key, value, shared:true }; }
-    return null;
-  }
-};
-const STORAGE_AVAILABLE = !!(typeof window!=='undefined' && window.storage) || FIREBASE_CONFIGURED;
-
-function normalizeName(value){
-  return String(value||'').trim().replace(/\s+/g,' ');
-}
-function playerNameKey(value){
-  return normalizeName(value).toLowerCase();
-}
-function findPlayerByRegistrationName(roster, name){
-  const key=playerNameKey(name);
-  return (roster||[]).find(p=>(p.registrationKey||playerNameKey(p.name))===key);
-}
-function ensureStateShape(target){
-  if(!target.setsCount) target.setsCount=3;
-  if(!target.roster) target.roster=[];
-  if(!target.pool) target.pool=[];
-  if(!target.courts) target.courts=[];
-  if(!target.history) target.history=[];
-  if(!target.settings) target.settings={ courtFee:0, shuttleMember:3, shuttleRegular:3, shuttleVisitor:4, maxGap:1, partnerWindow:3, opponentWindow:2, courts:4 };
-  target.roster.forEach(p=>{
+function runMigrations(){
+  if(!state.setsCount) state.setsCount=3;
+  if(!state.roster) state.roster=[];
+  if(!state.pool) state.pool=[];
+  if(!state.courts) state.courts=[];
+  if(!state.history) state.history=[];
+  if(!state.settings) state.settings={ courtFee:0, shuttleMember:3, shuttleRegular:3, shuttleVisitor:4, maxGap:1, partnerWindow:3, opponentWindow:2, courts:4 };
+  state.roster.forEach(p=>{
     if(!p.payments) p.payments=[];
     if(SKILL_MIGRATE[p.skill]) p.skill=SKILL_MIGRATE[p.skill];
     if(p.shuttlesUsed===undefined) p.shuttlesUsed=0;
@@ -865,59 +793,19 @@ function ensureStateShape(target){
     if(p.flaggedRemoved===undefined) p.flaggedRemoved=false;
     if(p.photo===undefined) p.photo=null;
     if(p.isNewReg===undefined) p.isNewReg=false;
-    if(!p.registrationKey) p.registrationKey=playerNameKey(p.name);
-    if(!p.createdAt) p.createdAt=target._updatedAt||Date.now();
-    if(!p.updatedAt) p.updatedAt=p.createdAt;
   });
-  target.courts.forEach(c=>{ if(!c.replacements) c.replacements=[]; if(c.locked===undefined) c.locked=false; if(!c.players) c.players=[]; });
-  if(!target.requestGroups) target.requestGroups=[];
-  if(target.gamesPlayedCount===undefined) target.gamesPlayedCount=0;
-  if(!target.advStats) target.advStats={allAdv:0,mixed:0};
-  if(!target.matchTypeStats) target.matchTypeStats={sameGender:0,mixed:0};
-  if(target.twoSetsActive===undefined) target.twoSetsActive=false;
-  if(target._updatedAt===undefined) target._updatedAt=0;
-  return target;
-}
-function runMigrations(){
-  ensureStateShape(state);
+  state.courts.forEach(c=>{ if(!c.replacements) c.replacements=[]; if(c.locked===undefined) c.locked=false; });
+  if(!state.requestGroups) state.requestGroups=[];
+  if(state.gamesPlayedCount===undefined) state.gamesPlayedCount=0;
+  if(!state.advStats) state.advStats={allAdv:0,mixed:0};
+  if(!state.matchTypeStats) state.matchTypeStats={sameGender:0,mixed:0};
+  if(state.twoSetsActive===undefined) state.twoSetsActive=false;
+  if(state._updatedAt===undefined) state._updatedAt=0;
 }
 runMigrations();
 
 // Debounced push of local state to shared online storage
 let _saveTimer=null;
-// Roster and the waiting pool are synced through their own small Firebase paths
-// (sbahc/roster, sbahc/pool) instead of being embedded in the big shared state
-// blob. This is what lets many people self-register via QR at the exact same
-// moment without their writes contending with each other or with everything
-// else in the app (courts, settings, history, etc).
-function stripSyncedFields(obj){
-  const { roster, pool, ...rest } = obj;
-  return rest;
-}
-function rosterMapFromArray(arr){
-  const map={}; (arr||[]).forEach(p=>{ if(p&&p.id) map[p.id]=p; }); return map;
-}
-async function pushRosterToCloud(){
-  if(!firebaseDB) return;
-  try{ await firebaseDB.ref('sbahc/roster').set(rosterMapFromArray(state.roster)); }
-  catch(e){ console.error('Roster push failed', e); }
-}
-async function fetchRosterFromCloud(){
-  if(!firebaseDB) return null;
-  try{ const snap=await firebaseDB.ref('sbahc/roster').once('value'); const val=snap.val(); return val?Object.values(val):[]; }
-  catch(e){ console.error('Roster fetch failed', e); return null; }
-}
-async function pushPoolToCloud(){
-  if(!firebaseDB) return;
-  try{ await firebaseDB.ref('sbahc/pool').set(state.pool||[]); }
-  catch(e){ console.error('Pool push failed', e); }
-}
-async function fetchPoolFromCloud(){
-  if(!firebaseDB) return null;
-  try{ const snap=await firebaseDB.ref('sbahc/pool').once('value'); const val=snap.val(); return val?(Array.isArray(val)?val:Object.values(val)):[]; }
-  catch(e){ console.error('Pool fetch failed', e); return null; }
-}
-
 function save(){
   state._updatedAt=Date.now();
   // keep a local fallback copy too (best-effort, non-blocking)
@@ -925,15 +813,7 @@ function save(){
   if(!STORAGE_AVAILABLE) return;
   clearTimeout(_saveTimer);
   _saveTimer=setTimeout(async ()=>{
-    try{
-      if(firebaseDB){
-        await cloudStorage.set(STORAGE_KEY, JSON.stringify(stripSyncedFields(state)));
-        await pushRosterToCloud();
-        await pushPoolToCloud();
-      } else {
-        await cloudStorage.set(STORAGE_KEY, JSON.stringify(state));
-      }
-    }
+    try{ await window.storage.set(STORAGE_KEY, JSON.stringify(state), true); }
     catch(e){ console.error('Cloud save failed, will retry on next change.', e); }
   }, 350);
 }
@@ -945,47 +825,8 @@ async function saveImmediate(){
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
   if(!STORAGE_AVAILABLE) return;
   clearTimeout(_saveTimer);
-  try{
-    if(firebaseDB){
-      await cloudStorage.set(STORAGE_KEY, JSON.stringify(stripSyncedFields(state)));
-      await pushRosterToCloud();
-      await pushPoolToCloud();
-    } else {
-      await cloudStorage.set(STORAGE_KEY, JSON.stringify(state));
-    }
-  }
+  try{ await window.storage.set(STORAGE_KEY, JSON.stringify(state), true); }
   catch(e){ console.error('Cloud save failed', e); }
-}
-
-async function updateStateSafely(mutator){
-  if(firebaseDB && !(typeof window!=='undefined' && window.storage)){
-    let latestResult=null;
-    await new Promise((resolve,reject)=>{
-      firebaseDB.ref('sbahc/'+STORAGE_KEY).transaction(raw=>{
-        let draft;
-        try{ draft=raw?JSON.parse(raw):defaultState(); }
-        catch(e){ draft=defaultState(); }
-        ensureStateShape(draft);
-        latestResult=mutator(draft)||null;
-        draft._updatedAt=Date.now();
-        return JSON.stringify(draft);
-      }, (error, committed, snap)=>{
-        if(error){ reject(error); return; }
-        if(committed && snap && snap.val()){
-          try{ state=JSON.parse(snap.val()); ensureStateShape(state); }
-          catch(e){ console.error('Could not parse committed state', e); }
-        }
-        resolve();
-      });
-    });
-    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
-    return latestResult;
-  }
-  await loadStateFromCloud(true);
-  ensureStateShape(state);
-  const result=mutator(state)||null;
-  await saveImmediate();
-  return result;
 }
 
 // Pull latest shared state from the cloud. On first load (initial=true) it always applies.
@@ -999,32 +840,17 @@ async function loadStateFromCloud(initial){
     return;
   }
   try{
-    const res=await cloudStorage.get(STORAGE_KEY);
-    // Roster and pool live in their own Firebase paths (see save()) so they can
-    // change independently of, and more frequently than, the rest of the state —
-    // always refresh them regardless of whether the main blob timestamp moved.
-    let rosterFromCloud=null, poolFromCloud=null;
-    if(firebaseDB){
-      rosterFromCloud=await fetchRosterFromCloud();
-      poolFromCloud=await fetchPoolFromCloud();
-    }
-    let changed=false;
+    const res=await window.storage.get(STORAGE_KEY, true);
     if(res && res.value){
       const remote=JSON.parse(res.value);
       if(initial || (remote._updatedAt||0) > (state._updatedAt||0)){
-        state={...remote, roster: state.roster||[], pool: state.pool||[]};
-        changed=true;
+        state=remote;
+        runMigrations();
+        if(typeof renderAll==='function') renderAll();
       }
     } else if(initial){
       // Nothing in the cloud yet — seed it with our current (default) state
-      await cloudStorage.set(STORAGE_KEY, JSON.stringify(stripSyncedFields(state)));
-      if(firebaseDB){ await pushRosterToCloud(); await pushPoolToCloud(); }
-    }
-    if(rosterFromCloud){ state.roster=rosterFromCloud; changed=true; }
-    if(poolFromCloud){ state.pool=poolFromCloud; changed=true; }
-    if(changed){
-      runMigrations();
-      if(typeof renderAll==='function') renderAll();
+      await window.storage.set(STORAGE_KEY, JSON.stringify(state), true);
     }
   }catch(e){ console.error('Cloud load failed', e); }
 }
@@ -1037,11 +863,11 @@ let currentUser=null; // { username, role, permissions }
 function defaultUsers(){
   return [
     {
-      id:'admin-default', username:'admin', password:'admin123', role:'admin',
+      id:'admin-'+uid(), username:'admin', password:'admin123', role:'admin',
       permissions:{dashboard:true,players:true,queue:true,bigscreen:true,reports:true,requests:true,settings:true}
     },
     {
-      id:'visitor-default', username:'Visitor', password:'visitor123', role:'standard',
+      id:'visitor-'+uid(), username:'Visitor', password:'visitor123', role:'standard',
       permissions:{dashboard:true,players:true,queue:false,bigscreen:true,reports:false,requests:false,settings:false}
     }
   ];
@@ -1051,7 +877,7 @@ function defaultUsers(){
 function ensureDefaultVisitor(){
   if(!users.find(u=>u.username.toLowerCase()==='visitor')){
     users.push({
-      id:'visitor-default', username:'Visitor', password:'visitor123', role:'standard',
+      id:'visitor-'+uid(), username:'Visitor', password:'visitor123', role:'standard',
       permissions:{dashboard:true,players:true,queue:false,bigscreen:true,reports:false,requests:false,settings:false}
     });
     saveUsers();
@@ -1066,16 +892,16 @@ async function loadUsers(){
     return;
   }
   try{
-    const res=await cloudStorage.get(USERS_KEY);
+    const res=await window.storage.get(USERS_KEY, true);
     if(res && res.value){ users=JSON.parse(res.value); }
-    else { users=defaultUsers(); await cloudStorage.set(USERS_KEY, JSON.stringify(users)); }
+    else { users=defaultUsers(); await window.storage.set(USERS_KEY, JSON.stringify(users), true); }
   }catch(e){ console.error('loadUsers failed',e); users=defaultUsers(); }
   ensureDefaultVisitor();
 }
 async function saveUsers(){
   try{ localStorage.setItem(USERS_KEY, JSON.stringify(users)); }catch(e){}
   if(!STORAGE_AVAILABLE) return;
-  try{ await cloudStorage.set(USERS_KEY, JSON.stringify(users)); }catch(e){ console.error('saveUsers failed',e); }
+  try{ await window.storage.set(USERS_KEY, JSON.stringify(users), true); }catch(e){ console.error('saveUsers failed',e); }
 }
 
 function findUser(username,password){
@@ -1251,137 +1077,12 @@ function resetRegistrationForm(){
   document.getElementById('registerSuccessWrap').style.display='none';
 }
 
-// Registers (or updates) a player directly against the small per-player Firebase
-// roster path, and checks them into a separately-synced pool path — never
-// touching the big shared state blob. This is what lets many people register
-// via QR at the exact same moment without contending with each other or with
-// the admin's queue/courts/settings changes.
-async function registerPlayerToCloud({ name, skill, gender, photoData, submittedAt }){
-  if(firebaseDB && !(typeof window!=='undefined' && window.storage)){
-    // Look for an existing player with this (normalized) name first
-    const rosterSnap=await firebaseDB.ref('sbahc/roster').once('value');
-    const rosterVal=rosterSnap.val()||{};
-    const key=playerNameKey(name);
-    let existingId=null;
-    for(const id in rosterVal){
-      const rp=rosterVal[id];
-      if((rp.registrationKey||playerNameKey(rp.name))===key){ existingId=id; break; }
-    }
-
-    let playerOut, created;
-    if(existingId){
-      created=false;
-      await new Promise((resolve,reject)=>{
-        firebaseDB.ref('sbahc/roster/'+existingId).transaction(cur=>{
-          const p=cur||rosterVal[existingId];
-          p.name=normalizeName(p.name||name);
-          p.skill=skill; p.gender=gender;
-          p.registrationKey=playerNameKey(p.name);
-          p.registeredSource=p.registeredSource||'public-registration';
-          p.registeredAt=p.registeredAt||submittedAt;
-          p.updatedAt=submittedAt;
-          p.isNewReg=true;
-          if(photoData) p.photo=photoData;
-          playerOut=p;
-          return p;
-        }, (error)=>{ if(error) reject(error); else resolve(); });
-      });
-    } else {
-      created=true;
-      const newId=uid();
-      playerOut={
-        id:newId, name, type:'Regular', skill, gender, phone:'', isCoach:false,
-        gamesPlayed:0,wins:0,losses:0,shuttlesUsed:0,sessionShuttles:0,advancedGames:0,
-        tab:0,paid:0,payments:[],partners:[],opponents:[],gameGroups:[],lastPlayed:0,
-        photo:photoData||null, flaggedRemoved:false, isNewReg:true,
-        registrationKey:key, registeredSource:'public-registration',
-        registeredAt:submittedAt, createdAt:submittedAt, updatedAt:submittedAt
-      };
-      await firebaseDB.ref('sbahc/roster/'+newId).set(playerOut);
-    }
-
-    // Reflect immediately in our local in-memory roster for instant feedback
-    const idx=state.roster.findIndex(p=>p.id===playerOut.id);
-    if(idx>=0) state.roster[idx]=playerOut; else state.roster.push(playerOut);
-
-    // Check into the waiting pool, if a session is currently live — via its own
-    // small, separate transaction so it never contends with roster writes.
-    let checkedIn=false, alreadyCheckedIn=false;
-    let sessionActiveNow=false;
-    try{
-      const stateSnap=await firebaseDB.ref('sbahc/'+STORAGE_KEY).once('value');
-      const raw=stateSnap.val();
-      sessionActiveNow = !!(raw && JSON.parse(raw).sessionActive);
-    }catch(e){ /* assume not active if unreadable */ }
-    if(sessionActiveNow){
-      await new Promise((resolve,reject)=>{
-        firebaseDB.ref('sbahc/pool').transaction(cur=>{
-          const poolArr=Array.isArray(cur)?cur.slice():(cur?Object.values(cur):[]);
-          alreadyCheckedIn=poolArr.some(e=>e.playerId===playerOut.id);
-          if(!alreadyCheckedIn){
-            poolArr.push({playerId:playerOut.id, joinedAt:submittedAt, paused:false, pausedAt:null});
-            checkedIn=true;
-          }
-          return poolArr;
-        }, (error, committed, snap)=>{
-          if(error){ reject(error); return; }
-          if(committed && snap){ const v=snap.val(); state.pool=Array.isArray(v)?v:(v?Object.values(v):[]); }
-          resolve();
-        });
-      });
-    }
-    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
-    return { playerName: playerOut.name, checkedIn, alreadyCheckedIn, created };
-  }
-
-  // Fallback path: no Firebase configured (running inside Claude's window.storage,
-  // or purely local) — use the original whole-state approach. Safe enough at the
-  // smaller scale those setups are typically used at.
-  return await updateStateSafely(draft=>{
-    let player=findPlayerByRegistrationName(draft.roster, name);
-    const created=!player;
-    if(!player){
-      player={
-        id:uid(), name, type:'Regular', skill, gender, phone:'', isCoach:false,
-        gamesPlayed:0,wins:0,losses:0,shuttlesUsed:0,sessionShuttles:0,advancedGames:0,
-        tab:0,paid:0,payments:[],partners:[],opponents:[],gameGroups:[],lastPlayed:0,
-        photo:photoData||null, flaggedRemoved:false, isNewReg:true,
-        registrationKey:playerNameKey(name), registeredSource:'public-registration',
-        registeredAt:submittedAt, createdAt:submittedAt, updatedAt:submittedAt
-      };
-      draft.roster.push(player);
-    } else {
-      player.name=normalizeName(player.name||name);
-      player.skill=skill;
-      player.gender=gender;
-      player.registrationKey=playerNameKey(player.name);
-      player.registeredSource=player.registeredSource||'public-registration';
-      player.registeredAt=player.registeredAt||submittedAt;
-      player.updatedAt=submittedAt;
-      player.isNewReg=true;
-      if(photoData) player.photo=photoData;
-    }
-    let checkedIn=false;
-    let alreadyCheckedIn=false;
-    if(draft.sessionActive){
-      alreadyCheckedIn=!!(draft.pool.find(p=>p.playerId===player.id) || draft.courts.find(c=>(c.players||[]).includes(player.id)));
-      if(!alreadyCheckedIn){
-        draft.pool.push({playerId:player.id,joinedAt:submittedAt,paused:false,pausedAt:null});
-        checkedIn=true;
-      }
-    }
-    return { playerName:player.name, checkedIn, alreadyCheckedIn, created };
-  });
-}
-
 async function submitRegistration(){
-  const name=normalizeName(document.getElementById('regName').value);
+  const name=document.getElementById('regName').value.trim();
   const skill=document.getElementById('regSkill').value;
   const gender=document.getElementById('regGender').value;
   const errEl=document.getElementById('registerError');
   if(!name){ errEl.textContent='Please enter your full name.'; return; }
-  if(!SKILLS.includes(skill)){ errEl.textContent='Please choose a valid skill level.'; return; }
-  if(!['M','F'].includes(gender)){ errEl.textContent='Please choose a valid gender.'; return; }
   errEl.textContent='';
   const photoFile=document.getElementById('regPhoto')?.files?.[0]||null;
   let photoData=null;
@@ -1392,19 +1093,29 @@ async function submitRegistration(){
     catch(e){ if(submitBtn){ submitBtn.disabled=false; submitBtn.textContent='✅ Register'; } return; }
     if(submitBtn){ submitBtn.disabled=false; submitBtn.textContent='✅ Register'; }
   }
-  const submittedAt=now();
-  let result;
-  try{
-    result=await registerPlayerToCloud({ name, skill, gender, photoData, submittedAt });
-  }catch(e){
-    console.error('Registration failed', e);
-    errEl.textContent='Something went wrong submitting your registration. Please try again.';
-    if(submitBtn){ submitBtn.disabled=false; submitBtn.textContent='✅ Register'; }
-    return;
+  // Re-fetch the freshest state right before writing, to avoid clobbering concurrent changes
+  await loadStateFromCloud(true);
+  let player=state.roster.find(p=>p.name.toLowerCase()===name.toLowerCase());
+  if(!player){
+    player={
+      id:uid(), name, type:'Regular', skill, gender, phone:'', isCoach:false,
+      gamesPlayed:0,wins:0,losses:0,shuttlesUsed:0,sessionShuttles:0,advancedGames:0,
+      tab:0,paid:0,payments:[],partners:[],opponents:[],gameGroups:[],lastPlayed:0,
+      photo:photoData||null, flaggedRemoved:false, isNewReg:true
+    };
+    state.roster.push(player);
+  } else {
+    player.skill=skill; player.gender=gender;
+    if(photoData) player.photo=photoData;
   }
-  renderAll();
-  document.getElementById('regSuccessName').textContent=`Welcome, ${result?.playerName||name}!`;
-  document.getElementById('regSuccessSub').textContent=result?.checkedIn
+  let checkedIn=false;
+  if(state.sessionActive){
+    const already=state.pool.find(p=>p.playerId===player.id) || state.courts.find(c=>c.players.includes(player.id));
+    if(!already){ state.pool.push({playerId:player.id,joinedAt:now(),paused:false,pausedAt:null}); checkedIn=true; }
+  }
+  await saveImmediate();
+  document.getElementById('regSuccessName').textContent=`Welcome, ${player.name}!`;
+  document.getElementById('regSuccessSub').textContent=checkedIn
     ? `You're registered as ${SKILL_FULL_LONG[skill]} and added to the waiting queue.`
     : (state.sessionActive ? "You're registered and already checked in." : "You're registered! Please check in with the front desk once the session starts.");
   document.getElementById('registerFormWrap').style.display='none';
